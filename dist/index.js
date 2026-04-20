@@ -1,6 +1,4 @@
 "use strict";
-/* eslint-disable promise/no-promise-in-callback */
-/* eslint-disable promise/no-callback-in-promise */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 var __assign = (this && this.__assign) || function () {
@@ -296,183 +294,180 @@ function withSentry(arg1, arg2) {
     var sentryClient = (_c = customSentryClient !== null && customSentryClient !== void 0 ? customSentryClient : options.sentry) !== null && _c !== void 0 ? _c : initSentry(options);
     var flushTimeout = (_d = options.flushTimeout) !== null && _d !== void 0 ? _d : (_e = options.sentryOptions) === null || _e === void 0 ? void 0 : _e.shutdownTimeout;
     // Create a new handler function wrapping the original one and hooking into all callbacks
-    return function (event, context, callback) {
+    return function (event, context) { return __awaiter(_this, void 0, void 0, function () {
+        var additionalScope, identity, originalRejectionListeners, unhandledRejectionListener, originalExceptionListeners, uncaughtExceptionListener, finalize, breadcrumb;
+        var _this = this;
         var _a, _b, _c, _d, _e;
-        if (!sentryClient) {
-            // Pass-through to the original handler and return
-            return handler(event, context, callback);
-        }
-        // Additional context to be stored with Sentry events and messages
-        var additionalScope = {
-            extras: {
-                Event: event,
-                Context: context,
-            },
-            tags: {
-                lambda: String(process.env.AWS_LAMBDA_FUNCTION_NAME),
-                version: String(process.env.AWS_LAMBDA_FUNCTION_VERSION),
-                memory_size: String(process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE),
-                log_group: String(process.env.AWS_LAMBDA_LOG_GROUP_NAME),
-                log_stream: String(process.env.AWS_LAMBDA_LOG_STREAM_NAME),
-                region: String(process.env.SERVERLESS_REGION || process.env.AWS_REGION),
-            },
-        };
-        if (process.env.SERVERLESS_SERVICE)
-            additionalScope.tags.service_name = process.env.SERVERLESS_SERVICE;
-        if (process.env.SERVERLESS_STAGE)
-            additionalScope.tags.stage = process.env.SERVERLESS_STAGE;
-        if (process.env.SERVERLESS_ALIAS)
-            additionalScope.tags.alias = process.env.SERVERLESS_ALIAS;
-        // Depending on the endpoint type the identity information can be at
-        // event.requestContext.identity (AWS_PROXY) or at context.identity (AWS)
-        var identity = ((_a = context.identity) === null || _a === void 0 ? void 0 : _a.constructor) === Object && Object.keys(context.identity).length > 0
-            ? context.identity
-            : (_b = event.requestContext) === null || _b === void 0 ? void 0 : _b.identity;
-        if (identity) {
-            // Track the caller's Cognito identity
-            // id, username and ip_address are key fields in Sentry
-            additionalScope.user = __assign(__assign({}, additionalScope.user), { id: identity.cognitoIdentityId || undefined, username: identity.user || undefined, ip_address: identity.sourceIp || undefined, cognito_identity_pool_id: identity.cognitoIdentityPoolId, cognito_authentication_type: identity.cognitoAuthenticationType, user_agent: identity.userAgent });
-        }
-        // Add additional tags for AWS_PROXY endpoints
-        if (event.requestContext) {
-            additionalScope.tags = __assign(__assign({}, additionalScope.tags), { api_id: event.requestContext.apiId, api_stage: event.requestContext.stage, http_method: event.requestContext.httpMethod });
-        }
-        sentryClient.configureScope(function (scope) {
-            var _a, _b, _c;
-            if (!customSentryClient) {
-                // Make sure we work with a clean scope as AWS is reusing our Lambda instance if it's already warm
-                scope.clear();
-            }
-            scope.setUser(__assign(__assign({}, additionalScope.user), (_a = options.scope) === null || _a === void 0 ? void 0 : _a.user));
-            scope.setExtras(__assign(__assign({}, additionalScope.extras), (_b = options.scope) === null || _b === void 0 ? void 0 : _b.extras));
-            scope.setTags(__assign(__assign({}, additionalScope.tags), (_c = options.scope) === null || _c === void 0 ? void 0 : _c.tags));
-        });
-        // Monitor for timeouts and memory usage
-        // The timers will be removed in `finalize` function below
-        installTimers(sentryClient, options, context);
-        var originalRejectionListeners = [];
-        var unhandledRejectionListener = function (err, p) {
-            sentryClient.withScope(function (scope) {
-                scope.setLevel("error");
-                scope.setExtras({
-                    Error: err,
-                    Promise: p,
-                });
-                sentryClient.captureMessage("Unhandled Promise Rejection - ".concat(String(err)));
-            });
-            // Now invoke the original listeners so behavior remains largly unchanged
-            sentryClient
-                .flush(flushTimeout)
-                .then(function () { return originalRejectionListeners.forEach(function (listener) { return listener(err, p); }); })
-                .catch(function () { return process.exit(1); });
-        };
-        if (options.captureUnhandledRejections) {
-            // Enable capturing of unhandled rejections
-            originalRejectionListeners = process.listeners("unhandledRejection");
-            process.removeAllListeners("unhandledRejection"); // remove any AWS handlers
-            process.on("unhandledRejection", unhandledRejectionListener);
-        }
-        var originalExceptionListeners = [];
-        var uncaughtExceptionListener = function (err) {
-            sentryClient.withScope(function (scope) {
-                scope.setLevel("fatal");
-                sentryClient.captureException(err);
-            });
-            // Now invoke the original listeners so behavior remains largly unchanged
-            sentryClient
-                .flush(flushTimeout)
-                .then(function () { return originalExceptionListeners.forEach(function (listener) { return listener(err, "uncaughtException"); }); })
-                .catch(function () { return process.exit(1); });
-        };
-        if (options.captureUncaughtException) {
-            // Enable capturing of uncaught exceptions
-            originalExceptionListeners = process.listeners("uncaughtException");
-            process.removeAllListeners("uncaughtException"); // remove any AWS handlers
-            process.on("uncaughtException", uncaughtExceptionListener);
-        }
-        /** Finalize withSentry wrapper, flush messages and remove all listeners */
-        var finalize = function () { return __awaiter(_this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        clearTimers();
-                        options.captureUnhandledRejections && process.removeListener("unhandledRejection", unhandledRejectionListener);
-                        options.captureUncaughtException && process.removeListener("uncaughtException", uncaughtExceptionListener);
-                        if (!!customSentryClient) return [3 /*break*/, 2];
-                        // Use `flush`, not `close` here as the Lambda might be kept alive and we don't want
-                        // to break our Sentry instance
-                        return [4 /*yield*/, sentryClient.flush(flushTimeout)];
-                    case 1:
-                        // Use `flush`, not `close` here as the Lambda might be kept alive and we don't want
-                        // to break our Sentry instance
-                        _a.sent();
-                        _a.label = 2;
-                    case 2: return [2 /*return*/];
-                }
-            });
-        }); };
-        if (options.autoBreadcrumbs) {
-            // First breadcrumb is the invocation of the Lambda itself
-            var breadcrumb = {
-                message: process.env.AWS_LAMBDA_FUNCTION_NAME,
-                category: "lambda",
-                level: "info",
-                data: {},
-            };
-            if (event.requestContext) {
-                // Track HTTP request info as part of the breadcrumb
-                breadcrumb.data = __assign(__assign({}, breadcrumb.data), { http_method: (_c = event.requestContext) === null || _c === void 0 ? void 0 : _c.httpMethod, host: (_d = event.headers) === null || _d === void 0 ? void 0 : _d.Host, path: event.path, user_agent: (_e = event.headers) === null || _e === void 0 ? void 0 : _e["User-Agent"] });
-            }
-            sentryClient.addBreadcrumb(breadcrumb);
-        }
-        // And finally invoke the original handler code
-        var callbackCalled = false;
-        var response = handler(event, context, function (err, data) {
-            // We wrap the original callback here
-            callbackCalled = true;
-            if (err && options.captureErrors) {
-                sentryClient.captureException(err);
-            }
-            finalize()
-                .finally(function () { return callback(err, data); }) // invoke the original callback
-                .catch(null);
-        });
-        if (!callbackCalled && typeof response === "object" && typeof response.then === "function") {
-            // The handler returned a promise instead of invoking the callback function
-            var resolveResponseAsync = function () { return __awaiter(_this, void 0, void 0, function () {
-                var err_1;
-                return __generator(this, function (_a) {
-                    switch (_a.label) {
-                        case 0:
-                            _a.trys.push([0, 2, 3, 5]);
-                            return [4 /*yield*/, response];
-                        case 1: 
-                        // resolve the response
-                        return [2 /*return*/, _a.sent()];
-                        case 2:
-                            err_1 = _a.sent();
-                            // Promise rejected
-                            if (options.captureErrors) {
-                                sentryClient.captureException(err_1);
-                            }
-                            throw err_1; // continue throwing
-                        case 3: 
-                        // Cleanup
-                        return [4 /*yield*/, finalize()];
-                        case 4:
-                            // Cleanup
-                            _a.sent();
-                            return [7 /*endfinally*/];
-                        case 5: return [2 /*return*/];
+        return __generator(this, function (_f) {
+            switch (_f.label) {
+                case 0:
+                    if (!sentryClient) {
+                        // Pass-through — wrap in Promise to support both async and callback-based inner handlers
+                        return [2 /*return*/, new Promise(function (resolve, reject) {
+                                var response = handler(event, context, function (err, data) {
+                                    if (err)
+                                        reject(err);
+                                    else
+                                        resolve(data);
+                                });
+                                if (typeof (response === null || response === void 0 ? void 0 : response.then) === "function") {
+                                    response.then(resolve, reject).catch(reject);
+                                }
+                            })];
                     }
-                });
-            }); };
-            return resolveResponseAsync();
-        }
-        else {
-            return response;
-        }
-    };
+                    additionalScope = {
+                        extras: {
+                            Event: event,
+                            Context: context,
+                        },
+                        tags: {
+                            lambda: String(process.env.AWS_LAMBDA_FUNCTION_NAME),
+                            version: String(process.env.AWS_LAMBDA_FUNCTION_VERSION),
+                            memory_size: String(process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE),
+                            log_group: String(process.env.AWS_LAMBDA_LOG_GROUP_NAME),
+                            log_stream: String(process.env.AWS_LAMBDA_LOG_STREAM_NAME),
+                            region: String(process.env.SERVERLESS_REGION || process.env.AWS_REGION),
+                        },
+                    };
+                    if (process.env.SERVERLESS_SERVICE)
+                        additionalScope.tags.service_name = process.env.SERVERLESS_SERVICE;
+                    if (process.env.SERVERLESS_STAGE)
+                        additionalScope.tags.stage = process.env.SERVERLESS_STAGE;
+                    if (process.env.SERVERLESS_ALIAS)
+                        additionalScope.tags.alias = process.env.SERVERLESS_ALIAS;
+                    identity = ((_a = context.identity) === null || _a === void 0 ? void 0 : _a.constructor) === Object && Object.keys(context.identity).length > 0
+                        ? context.identity
+                        : (_b = event.requestContext) === null || _b === void 0 ? void 0 : _b.identity;
+                    if (identity) {
+                        // Track the caller's Cognito identity
+                        // id, username and ip_address are key fields in Sentry
+                        additionalScope.user = __assign(__assign({}, additionalScope.user), { id: identity.cognitoIdentityId || undefined, username: identity.user || undefined, ip_address: identity.sourceIp || undefined, cognito_identity_pool_id: identity.cognitoIdentityPoolId, cognito_authentication_type: identity.cognitoAuthenticationType, user_agent: identity.userAgent });
+                    }
+                    // Add additional tags for AWS_PROXY endpoints
+                    if (event.requestContext) {
+                        additionalScope.tags = __assign(__assign({}, additionalScope.tags), { api_id: event.requestContext.apiId, api_stage: event.requestContext.stage, http_method: event.requestContext.httpMethod });
+                    }
+                    sentryClient.configureScope(function (scope) {
+                        var _a, _b, _c;
+                        if (!customSentryClient) {
+                            // Make sure we work with a clean scope as AWS is reusing our Lambda instance if it's already warm
+                            scope.clear();
+                        }
+                        scope.setUser(__assign(__assign({}, additionalScope.user), (_a = options.scope) === null || _a === void 0 ? void 0 : _a.user));
+                        scope.setExtras(__assign(__assign({}, additionalScope.extras), (_b = options.scope) === null || _b === void 0 ? void 0 : _b.extras));
+                        scope.setTags(__assign(__assign({}, additionalScope.tags), (_c = options.scope) === null || _c === void 0 ? void 0 : _c.tags));
+                    });
+                    // Monitor for timeouts and memory usage
+                    // The timers will be removed in `finalize` function below
+                    installTimers(sentryClient, options, context);
+                    originalRejectionListeners = [];
+                    unhandledRejectionListener = function (err, p) {
+                        sentryClient.withScope(function (scope) {
+                            scope.setLevel("error");
+                            scope.setExtras({
+                                Error: err,
+                                Promise: p,
+                            });
+                            sentryClient.captureMessage("Unhandled Promise Rejection - ".concat(String(err)));
+                        });
+                        // Now invoke the original listeners so behavior remains largly unchanged
+                        sentryClient
+                            .flush(flushTimeout)
+                            .then(function () { return originalRejectionListeners.forEach(function (listener) { return listener(err, p); }); })
+                            .catch(function () { return process.exit(1); });
+                    };
+                    if (options.captureUnhandledRejections) {
+                        // Enable capturing of unhandled rejections
+                        originalRejectionListeners = process.listeners("unhandledRejection");
+                        process.removeAllListeners("unhandledRejection"); // remove any AWS handlers
+                        process.on("unhandledRejection", unhandledRejectionListener);
+                    }
+                    originalExceptionListeners = [];
+                    uncaughtExceptionListener = function (err) {
+                        sentryClient.withScope(function (scope) {
+                            scope.setLevel("fatal");
+                            sentryClient.captureException(err);
+                        });
+                        // Now invoke the original listeners so behavior remains largly unchanged
+                        sentryClient
+                            .flush(flushTimeout)
+                            .then(function () { return originalExceptionListeners.forEach(function (listener) { return listener(err, "uncaughtException"); }); })
+                            .catch(function () { return process.exit(1); });
+                    };
+                    if (options.captureUncaughtException) {
+                        // Enable capturing of uncaught exceptions
+                        originalExceptionListeners = process.listeners("uncaughtException");
+                        process.removeAllListeners("uncaughtException"); // remove any AWS handlers
+                        process.on("uncaughtException", uncaughtExceptionListener);
+                    }
+                    finalize = function () { return __awaiter(_this, void 0, void 0, function () {
+                        return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0:
+                                    clearTimers();
+                                    options.captureUnhandledRejections && process.removeListener("unhandledRejection", unhandledRejectionListener);
+                                    options.captureUncaughtException && process.removeListener("uncaughtException", uncaughtExceptionListener);
+                                    if (!!customSentryClient) return [3 /*break*/, 2];
+                                    // Use `flush`, not `close` here as the Lambda might be kept alive and we don't want
+                                    // to break our Sentry instance
+                                    return [4 /*yield*/, sentryClient.flush(flushTimeout)];
+                                case 1:
+                                    // Use `flush`, not `close` here as the Lambda might be kept alive and we don't want
+                                    // to break our Sentry instance
+                                    _a.sent();
+                                    _a.label = 2;
+                                case 2: return [2 /*return*/];
+                            }
+                        });
+                    }); };
+                    if (options.autoBreadcrumbs) {
+                        breadcrumb = {
+                            message: process.env.AWS_LAMBDA_FUNCTION_NAME,
+                            category: "lambda",
+                            level: "info",
+                            data: {},
+                        };
+                        if (event.requestContext) {
+                            // Track HTTP request info as part of the breadcrumb
+                            breadcrumb.data = __assign(__assign({}, breadcrumb.data), { http_method: (_c = event.requestContext) === null || _c === void 0 ? void 0 : _c.httpMethod, host: (_d = event.headers) === null || _d === void 0 ? void 0 : _d.Host, path: event.path, user_agent: (_e = event.headers) === null || _e === void 0 ? void 0 : _e["User-Agent"] });
+                        }
+                        sentryClient.addBreadcrumb(breadcrumb);
+                    }
+                    _f.label = 1;
+                case 1:
+                    _f.trys.push([1, , 3, 5]);
+                    return [4 /*yield*/, new Promise(function (resolve, reject) {
+                            var response = handler(event, context, function (err, data) {
+                                // Support callback-based inner handlers
+                                if (err && options.captureErrors) {
+                                    sentryClient.captureException(err);
+                                }
+                                if (err)
+                                    reject(err);
+                                else
+                                    resolve(data);
+                            });
+                            // If handler returned a Promise (async), use it
+                            if (typeof (response === null || response === void 0 ? void 0 : response.then) === "function") {
+                                response
+                                    .then(function (result) { return resolve(result); })
+                                    .catch(function (err) {
+                                    if (options.captureErrors) {
+                                        sentryClient.captureException(err);
+                                    }
+                                    reject(err);
+                                });
+                            }
+                        })];
+                case 2: return [2 /*return*/, _f.sent()];
+                case 3: return [4 /*yield*/, finalize()];
+                case 4:
+                    _f.sent();
+                    return [7 /*endfinally*/];
+                case 5: return [2 /*return*/];
+            }
+        });
+    }); };
 }
 exports.withSentry = withSentry;
 exports.default = withSentry;

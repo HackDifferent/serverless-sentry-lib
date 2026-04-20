@@ -4,7 +4,7 @@ import { Callback, Context } from "aws-lambda";
  * {@link Handler} context parameter.
  * See {@link https://docs.aws.amazon.com/lambda/latest/dg/nodejs-prog-model-context.html AWS documentation}.
  */
-export declare type Handler<TEvent = any, TResult = any> = (event: TEvent, context: Context, callback: Callback<TResult>) => void | Promise<TResult>;
+export declare type Handler<TEvent = any, TResult = any> = (event: TEvent, context: Context, callback?: Callback<TResult>) => void | Promise<TResult | void>;
 export declare type CaptureMemoryOptions = {
     enabled: boolean;
     /**

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Git post-commit hook: prune .context/tasks/ folders older than 90 days.
+# Installed via: git config core.hooksPath .githooks
+bash "$(git rev-parse --show-toplevel)/.context/workflows/prune-old-tasks.sh"

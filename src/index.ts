@@ -1,5 +1,3 @@
-/* eslint-disable promise/no-promise-in-callback */
-/* eslint-disable promise/no-callback-in-promise */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
@@ -19,8 +17,8 @@ import { Callback, Context } from "aws-lambda";
 export type Handler<TEvent = any, TResult = any> = (
   event: TEvent,
   context: Context,
-  callback: Callback<TResult>,
-) => void | Promise<TResult>;
+  callback?: Callback<TResult>,
+) => void | Promise<TResult | void>;
 
 export type CaptureMemoryOptions = {
   enabled: boolean;
@@ -409,10 +407,18 @@ export function withSentry<TEvent = any, TResult = any>(
   const flushTimeout = options.flushTimeout ?? options.sentryOptions?.shutdownTimeout;
 
   // Create a new handler function wrapping the original one and hooking into all callbacks
-  return (event: any, context: Context, callback: Callback<any>) => {
+  return async (event: any, context: Context): Promise<TResult | void> => {
     if (!sentryClient) {
-      // Pass-through to the original handler and return
-      return handler(event, context, callback);
+      // Pass-through — wrap in Promise to support both async and callback-based inner handlers
+      return new Promise<TResult | void>((resolve, reject) => {
+        const response = handler(event, context, (err, data) => {
+          if (err) reject(err);
+          else resolve(data as TResult);
+        });
+        if (typeof (response as any)?.then === "function") {
+          (response as Promise<TResult>).then(resolve, reject).catch(reject);
+        }
+      });
     }
 
     // Additional context to be stored with Sentry events and messages
@@ -557,39 +563,32 @@ export function withSentry<TEvent = any, TResult = any>(
       sentryClient.addBreadcrumb(breadcrumb);
     }
 
-    // And finally invoke the original handler code
-    let callbackCalled = false;
-    const response = handler(event, context, (err, data) => {
-      // We wrap the original callback here
-      callbackCalled = true;
-      if (err && options.captureErrors) {
-        sentryClient.captureException(err);
-      }
-      finalize()
-        .finally(() => callback(err, data)) // invoke the original callback
-        .catch(null);
-    });
-
-    if (!callbackCalled && typeof response === "object" && typeof response.then === "function") {
-      // The handler returned a promise instead of invoking the callback function
-      const resolveResponseAsync = async () => {
-        try {
-          // resolve the response
-          return await response;
-        } catch (err) {
-          // Promise rejected
-          if (options.captureErrors) {
+    // Invoke the original handler, supporting both async and callback-based inner handlers
+    try {
+      return await new Promise<TResult | void>((resolve, reject) => {
+        const response = handler(event, context, (err, data) => {
+          // Support callback-based inner handlers
+          if (err && options.captureErrors) {
             sentryClient.captureException(err);
           }
-          throw err; // continue throwing
-        } finally {
-          // Cleanup
-          await finalize();
+          if (err) reject(err);
+          else resolve(data as TResult);
+        });
+
+        // If handler returned a Promise (async), use it
+        if (typeof (response as any)?.then === "function") {
+          (response as Promise<TResult>)
+            .then((result) => resolve(result))
+            .catch((err) => {
+              if (options.captureErrors) {
+                sentryClient.captureException(err);
+              }
+              reject(err);
+            });
         }
-      };
-      return resolveResponseAsync();
-    } else {
-      return response;
+      });
+    } finally {
+      await finalize();
     }
   };
 }

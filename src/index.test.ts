@@ -116,8 +116,8 @@ describe("withSentry", () => {
     });
 
     describe("Callbacks", () => {
-      it("should invoke callback with result", (done) => {
-        /** Lambda function handler */
+      it("should resolve with result from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry((event: any, context: any, callback: Callback<any>) => {
           callback(null, {
             message: "Go Serverless! Your function executed successfully!",
@@ -125,27 +125,21 @@ describe("withSentry", () => {
           });
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.not.be.called;
-          expect(mockSentry.captureException).to.not.be.called;
-          expect(err).to.be.null;
-          expect(result).to.have.property("message").that.is.a("string");
-          done();
-        });
+        const result = await handler(mockEvent, mockContext);
+        expect(mockSentry.init).to.not.be.called;
+        expect(mockSentry.captureException).to.not.be.called;
+        expect(result).to.have.property("message").that.is.a("string");
       });
 
-      it("should invoke callback with error", (done) => {
-        /** Lambda function handler */
+      it("should reject with error from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry((event: any, context: any, callback: Callback<any>) => {
           callback(new Error("Test Error"));
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.not.be.called;
-          expect(mockSentry.captureException).to.not.be.called;
-          expect(err).to.be.an("error").with.property("message", "Test Error");
-          done();
-        });
+        await expect(handler(mockEvent, mockContext)).to.eventually.be.rejectedWith("Test Error");
+        expect(mockSentry.init).to.not.be.called;
+        expect(mockSentry.captureException).to.not.be.called;
       });
     });
 
@@ -158,7 +152,7 @@ describe("withSentry", () => {
             event,
           });
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub())).to.eventually.be.fulfilled.then((result) => {
+        return expect(handler(mockEvent, mockContext)).to.eventually.be.fulfilled.then((result) => {
           expect(mockSentry.init).to.not.be.called;
           expect(mockSentry.captureException).to.not.be.called;
           expect(result).to.have.property("message").that.is.a("string");
@@ -170,7 +164,7 @@ describe("withSentry", () => {
         const handler = withSentry((event: any, context: any) => {
           return Promise.reject(new Error("Test Error"));
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub()))
+        return expect(handler(mockEvent, mockContext))
           .to.eventually.be.rejectedWith("Test Error")
           .then(() => {
             expect(mockSentry.init).to.not.be.called;
@@ -194,8 +188,8 @@ describe("withSentry", () => {
     });
 
     describe("Callbacks", () => {
-      it("should invoke callback with result", (done) => {
-        /** Lambda function handler */
+      it("should resolve with result from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry((event: any, context: any, callback: Callback<any>) => {
           callback(null, {
             message: "Go Serverless! Your function executed successfully!",
@@ -203,27 +197,21 @@ describe("withSentry", () => {
           });
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.be.calledOnce;
-          expect(mockSentry.captureException).to.not.be.called;
-          expect(err).to.be.null;
-          expect(result).to.have.property("message").that.is.a("string");
-          done();
-        });
+        const result = await handler(mockEvent, mockContext);
+        expect(mockSentry.init).to.be.calledOnce;
+        expect(mockSentry.captureException).to.not.be.called;
+        expect(result).to.have.property("message").that.is.a("string");
       });
 
-      it("should invoke callback with error", (done) => {
-        /** Lambda function handler */
+      it("should capture error and reject from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry((event: any, context: any, callback: Callback<any>) => {
           callback(new Error("Test Error"));
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.be.calledOnce;
-          expect(mockSentry.captureException).to.be.calledOnce;
-          expect(err).to.be.an("error").with.property("message", "Test Error");
-          done();
-        });
+        await expect(handler(mockEvent, mockContext)).to.eventually.be.rejectedWith("Test Error");
+        expect(mockSentry.init).to.be.calledOnce;
+        expect(mockSentry.captureException).to.be.calledOnce;
       });
     });
 
@@ -236,7 +224,7 @@ describe("withSentry", () => {
             event,
           });
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub())).to.eventually.be.fulfilled.then((result) => {
+        return expect(handler(mockEvent, mockContext)).to.eventually.be.fulfilled.then((result) => {
           expect(mockSentry.init).to.be.calledOnce;
           expect(mockSentry.captureException).to.not.be.called;
           expect(result).to.have.property("message").that.is.a("string");
@@ -248,7 +236,34 @@ describe("withSentry", () => {
         const handler = withSentry((event: any, context: any) => {
           return Promise.reject(new Error("Test Error"));
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub()))
+        return expect(handler(mockEvent, mockContext))
+          .to.eventually.be.rejectedWith("Test Error")
+          .then(() => {
+            expect(mockSentry.init).to.be.calledOnce;
+            expect(mockSentry.captureException).to.be.calledOnce;
+          });
+      });
+    });
+
+    describe("Node.js 24+ (no callback)", () => {
+      it("should return fulfilled Promise when invoked without callback", () => {
+        /** Lambda function handler — async style required by Node.js 24 */
+        const handler = withSentry(async (event: any, context: any) => {
+          return { message: "Go Serverless! Your function executed successfully!", event };
+        });
+        return expect(handler(mockEvent, mockContext)).to.eventually.be.fulfilled.then((result) => {
+          expect(mockSentry.init).to.be.calledOnce;
+          expect(mockSentry.captureException).to.not.be.called;
+          expect(result).to.have.property("message").that.is.a("string");
+        });
+      });
+
+      it("should capture error and return rejected Promise when invoked without callback", () => {
+        /** Lambda function handler — async style required by Node.js 24 */
+        const handler = withSentry(async (event: any, context: any) => {
+          throw new Error("Test Error");
+        });
+        return expect(handler(mockEvent, mockContext))
           .to.eventually.be.rejectedWith("Test Error")
           .then(() => {
             expect(mockSentry.init).to.be.calledOnce;
@@ -262,8 +277,8 @@ describe("withSentry", () => {
 
   describe("Custom Sentry Instance", () => {
     describe("Callbacks", () => {
-      it("should invoke callback with result", (done) => {
-        /** Lambda function handler */
+      it("should resolve with result from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry(mockSentry, (event: any, context: any, callback: Callback<any>) => {
           callback(null, {
             message: "Go Serverless! Your function executed successfully!",
@@ -271,27 +286,21 @@ describe("withSentry", () => {
           });
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.not.be.called;
-          expect(mockSentry.captureException).to.not.be.called;
-          expect(err).to.be.null;
-          expect(result).to.have.property("message").that.is.a("string");
-          done();
-        });
+        const result = await handler(mockEvent, mockContext);
+        expect(mockSentry.init).to.not.be.called;
+        expect(mockSentry.captureException).to.not.be.called;
+        expect(result).to.have.property("message").that.is.a("string");
       });
 
-      it("should invoke callback with error", (done) => {
-        /** Lambda function handler */
+      it("should capture error and reject from callback-based inner handler", async () => {
+        /** Lambda function handler — callback style (inner handler, still supported) */
         const handler = withSentry(mockSentry, (event: any, context: any, callback: Callback<any>) => {
           callback(new Error("Test Error"));
         });
 
-        handler(mockEvent, mockContext, (err: Error, result: any) => {
-          expect(mockSentry.init).to.not.be.called;
-          expect(mockSentry.captureException).to.be.calledOnce;
-          expect(err).to.be.an("error").with.property("message", "Test Error");
-          done();
-        });
+        await expect(handler(mockEvent, mockContext)).to.eventually.be.rejectedWith("Test Error");
+        expect(mockSentry.init).to.not.be.called;
+        expect(mockSentry.captureException).to.be.calledOnce;
       });
     });
 
@@ -304,7 +313,7 @@ describe("withSentry", () => {
             event,
           });
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub())).to.eventually.be.fulfilled.then((result) => {
+        return expect(handler(mockEvent, mockContext)).to.eventually.be.fulfilled.then((result) => {
           expect(mockSentry.init).to.not.be.called;
           expect(mockSentry.captureException).to.not.be.called;
           expect(result).to.have.property("message").that.is.a("string");
@@ -316,7 +325,7 @@ describe("withSentry", () => {
         const handler = withSentry(mockSentry, (event: any, context: any) => {
           return Promise.reject(new Error("Test Error"));
         });
-        return expect(handler(mockEvent, mockContext, sinon.stub()))
+        return expect(handler(mockEvent, mockContext))
           .to.eventually.be.rejectedWith("Test Error")
           .then(() => {
             expect(mockSentry.init).to.not.be.called;
